@@ -1,0 +1,153 @@
+_<x>:=PolynomialRing(Rationals());
+
+f:=15560036076469248*x^3 + 51468441407469319836143473*x^2 - 497312227802505407769400165687028*x + 556884612253557846953628131195272740623601;
+
+for p in [ 4018426744559269274579405699, 461516545359925528236128783904359556661401233959492820033, 1333872817, 622918016143240238107 ] do
+    StoreFactor(p);
+end for;
+J:=Set(PrimeFactors(Integers()!Coefficient(f,3)));
+
+D := Discriminant(f);
+_:=Factorization(Integers()!D);
+
+K<alpha> := NumberField(f);
+OK := MaximalOrder(K);
+
+BB:=BachBound(OK);
+GB:=GRHBound(OK);
+if GB ne 151399 then
+    printf "Versions of magma differ on the GRH bound. Using GRH bound of 151399.\n";
+    GB:=151399;
+end if;
+
+printf "Loading relations\n";
+load "Rels27.mag";
+printf "Finished Loading relations\n";
+
+printf "Creating factor base\n";
+primes:=PrimesUpTo(4*GB);
+
+fbase := [];
+PP:=AssociativeArray();
+
+for p in primes do;
+    facs:=Factorization(p*OK);
+    if &and[Degree(q[1]) eq 1: q in facs] then
+        Append(~rels, [p,0]);
+    end if;
+    facsp:=Sort([q[1]: q in facs|Degree(q[1]) eq 1]);
+    fbase:=fbase cat facsp;
+    PP[p]:=facsp;
+end for;
+
+A := AssociativeArray();
+
+for i in [1..#fbase] do;
+  A[fbase[i]] := i;
+end for;
+printf "Finished creating factor base\n";
+
+
+printf "Processing relations\n";
+rels:=[r[1] + r[2]*alpha: r in rels];
+entries := [];
+time for i in [1..#rels] do;
+  n:=Norm(rels[i]);
+  nn:=Numerator(n);
+  dn:=Denominator(n);
+  facsn, rem := TrialDivision(nn,4*GB); 
+  assert(#rem eq 0 and facsn[#facsn][1] le 4*GB);
+
+  Pn:={q[1]: q in facsn};
+  P:=Sort(Setseq(Pn join J));
+  
+  for p in P do
+    for q in PP[p] do
+      Append(~entries,<i,A[q],Valuation(rels[i],q)>);
+    end for;
+  end for;
+  if i mod 1000 eq 0 then
+    "Processed ",i, " relations.";
+  end if;
+end for;
+printf "Finished processing relations\n";
+
+S:=SparseMatrix(Integers(),#rels,#fbase,entries);
+printf "Verfiying relations\n";
+for i in [1 .. Nrows(S)] do
+  r:=S[i];
+  assert((rels[i]*OK)*(&*[fbase[j]^r[j] : j in Support(r)])^-1 eq 1*OK);
+  if i mod 1000 eq 0 then
+    "Verified ",i, " relations.";
+  end if;
+end for;
+printf "Finished verfiying relations\n";
+
+S2:=ChangeRing(S,GF(2));
+CW:=ColumnWeights(S2);
+m :=Min([Norm(fbase[i]): i in [1 .. #CW]|CW[i] eq 0]);
+printf "Smallest prime not incident on any relation has norm %o\n", m;
+
+//Remove empty columns from the matrix
+T2:=Transpose(S2);
+for c in Reverse(Sort([i:i in [1 .. #CW]|CW[i] eq 0])) do
+  RemoveRow(~T2,c);
+end for;
+
+S2:=Transpose(T2);
+//SetVerbose("SparseMatrix", 3);
+printf "Starting right nullspace computation\n";
+K:=NullspaceOfTranspose(S2);
+//assert(Dimension(K) eq 21);
+printf "The initial right nullspace of the matrix has dimension %o. Removing bad rows to eliminate spurious nullvectors.\n", Dimension(K);
+
+for r in Reverse(Sort(Setseq(&join{&join{Support(T2[r]): r in Support(w)}: w in Basis(K)|Weight(w) lt 10}))) do
+    RemoveRow(~S,r);
+    Remove(~rels,r);
+end for;
+
+S2:=ChangeRing(S,GF(2));
+CW:=ColumnWeights(S2);
+m :=Min([Norm(fbase[i]): i in [1 .. #CW]|CW[i] eq 0]);
+printf "Finished removing bad rows. Smallest prime not incident on any relation has norm %o\n", m;
+
+//Remove empty columns
+T2:=Transpose(S2);
+for c in Reverse(Sort([i:i in [1 .. #CW]|CW[i] eq 0])) do
+  RemoveRow(~T2,c);
+end for;
+
+S2:=Transpose(T2);
+printf "Starting right nullspace computation\n";
+K:=NullspaceOfTranspose(S2);
+assert(Dimension(K) eq 22);
+printf "The right nullspace has dimension %o.\n",Dimension(K);
+
+
+printf "Removing rows prior to determining left nullspace\n";
+n:=45325;
+S2:=ChangeRing(RowSubmatrix(S,n),GF(2));
+
+
+printf "Calculating Legendre characters of the relations.\n";
+q:=NextPrime(4*GB);
+Q:=[];
+while #Q lt 32 do
+    qq:=[q0[1]:q0 in Factorization(q*OK)|Degree(q0[1]) eq 1];
+    Q := Q cat qq;
+    q:=NextPrime(q);
+end while;
+Qm:=<>;
+for q in Q do
+    _,mkq:=ResidueClassField(q);
+    Append(~Qm,mkq);
+end for;
+QM:=Matrix(GF(2),[[LegendreSymbol(Integers()!m(r),Characteristic(Codomain(m))) eq 1 select 0 else 1: m in Qm]: r in rels[1..n]]);
+printf "Completed calculating Legendre characters of the relations.\n";
+
+printf "Calculating left nullspace.\n";
+N:=Nullspace(S2);
+printf "Finished calculating left nullspace.\n";
+
+printf "The rank of the left nullspace mod squares is at least %o.\n", Rank(Matrix([v*QM: v in Basis(N)]));
+assert(Rank(Matrix([v*QM: v in Basis(N)])) eq 24);

@@ -1,0 +1,105 @@
+_<x> := PolynomialRing(Rationals());
+
+E := EllipticCurve([1,-1,1,-20067762415575526585033208209338542750930230312178956502,34481611795030556467032985690390720374855944359319180361266008296291939448732243429]);
+
+f := 64023127168000*x^3 + 10309553525987840512490787747*x^2 - 3858878002265332645698861066081585182608*x - 69043295714402138353376748510210837676894689434302674;
+
+J:=Set(PrimeFactors(Integers()!Coefficient(f,3)));
+
+StoreFactor(376018840263193489397987439236873583997122096511452343225772113000611087671413);
+StoreFactor(315574902691581877528345013999136728634663121);
+
+D := Discriminant(f);
+_:=Factorization(Integers()!D);
+
+K<alpha> := NumberField(f);
+OK := MaximalOrder(K);
+
+BB:=BachBound(OK);
+GB:=GRHBound(OK);
+
+printf "Creating factor base\n";
+primes:=PrimesUpTo(BB);
+fbase := [];
+
+PP:=AssociativeArray();
+for p in primes do;
+  facsp:=Sort([q[1]: q in Factorization(p*OK)|Degree(q[1]) eq 1]);
+  fbase:=fbase cat facsp;
+  PP[p]:=facsp;
+end for;
+
+A := AssociativeArray();
+
+for i in [1..#fbase] do;
+  A[fbase[i]] := i;
+end for;
+printf "Finished creating factor base\n";
+
+printf "Loading relations\n";
+
+load "Rels28.mag";
+load "ExtraRels28.mag";
+rels:=[r[1] + r[2]*alpha: r in rels];
+
+printf "Finished loading relations\n";
+
+
+printf "Processing relations\n";
+
+entries := [];
+time for i in [1..#rels] do;
+  n:=Norm(rels[i]);
+  nn:=Numerator(n);
+  dn:=Denominator(n);
+  facsn, rem := TrialDivision(nn,BB); 
+  assert(#rem eq 0 and facsn[#facsn][1] le BB);
+
+  Pn:={q[1]: q in facsn};
+  P:=Sort(Setseq(Pn join J));
+  
+  for p in P do
+    for q in PP[p] do
+      Append(~entries,<i,A[q],Valuation(rels[i],q)>);
+    end for;
+  end for;
+  if i mod 1000 eq 0 then
+    "Processed",i, " relations.";
+  end if;
+end for;
+printf "Finished processing relations\n";
+
+printf "Verifying relations\n";
+S:=SparseMatrix(Integers(),#rels,#fbase,entries);
+
+for i in [1 .. Nrows(S)] do
+  r:=S[i];
+  assert((rels[i]*OK)*(&*[fbase[j]^r[j] : j in Support(r)])^-1 eq 1*OK);
+  if i mod 1000 eq 0 then
+    "Verified ",i, " relations.";
+  end if;
+end for;
+printf "Finished verfiying relations\n";
+
+
+S:=SparseMatrix(Integers(),#rels,#fbase,entries);
+S2:=ChangeRing(S,GF(2));
+
+CW:=ColumnWeights(S2);
+m :=Min([Norm(fbase[i]): i in [1 .. #CW]|CW[i] eq 0]);
+
+printf "Smallest prime not incident on any relation is %o\n", m;
+
+//Remove empty columns from the matrix
+T2:=Transpose(S2);
+for c in Reverse(Sort([i:i in [1 .. #CW]|CW[i] eq 0])) do
+  RemoveRow(~T2,c);
+end for;
+
+S2:=Transpose(T2);
+//SetVerbose("SparseMatrix", 3);
+printf "Starting right nullspace computation\n";
+K:=NullspaceOfTranspose(S2);
+assert(Dimension(K) eq 20);
+printf "The right nullspace of the matrix has dimension %o\n", Dimension(K);
+

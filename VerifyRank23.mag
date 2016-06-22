@@ -1,0 +1,90 @@
+_<x>:=PolynomialRing(Rationals());
+
+f:=59865403640328000*x^3 + 30357716218004835541*x^2 - 14206611767334834785*x + 3031944233345318784207;
+
+for p in [17858193374841750901974789649, 1006218106634655545344494448610726356220703995276273] do
+    StoreFactor(p);
+end for;
+J:={p[1]: p in Factorization(Integers()!Coefficient(f,3))};
+
+D := Discriminant(f);
+_:=Factorization(Integers()!D);
+
+K<alpha> := NumberField(f);
+OK := MaximalOrder(K);
+B:=100000;
+
+printf "Using prime bound of %o\n",B;
+
+printf "Loading relations\n";
+load "Rels23.mag";
+printf "Finished Loading relations\n";
+
+printf "Creating factor base\n";
+primes:=PrimesUpTo(B);
+
+fbase := [];
+PP:=AssociativeArray();
+
+for p in primes do;
+    facs:=Factorization(p*OK);
+    if &and[Degree(q[1]) eq 1: q in facs] then
+        Append(~rels, [p,0]);
+    end if;
+    facsp:=Sort([q[1]: q in facs|Degree(q[1]) eq 1]);
+    fbase:=fbase cat facsp;
+    PP[p]:=facsp;
+end for;
+
+A := AssociativeArray();
+
+for i in [1..#fbase] do;
+  A[fbase[i]] := i;
+end for;
+printf "Finished creating factor base\n";
+
+printf "Processing relations\n";
+rels:=[r[1] - r[2]*alpha: r in rels];
+entries := [];
+time for i in [1..#rels] do;
+  n:=Norm(rels[i]);
+  nn:=Numerator(n);
+  dn:=Denominator(n);
+  facsn, rem := TrialDivision(nn,B); 
+  assert(#rem eq 0 and facsn[#facsn][1] le B);
+
+  Pn:={q[1]: q in facsn};
+  P:=Sort(Setseq(Pn join J));
+  
+  for p in P do
+    for q in PP[p] do
+      Append(~entries,<i,A[q],Valuation(rels[i],q)>);
+    end for;
+  end for;
+  if i mod 1000 eq 0 then
+    "Processed ",i, " relations.";
+  end if;
+end for;
+printf "Finished processing relations\n";
+
+S:=SparseMatrix(Integers(),#rels,#fbase,entries);
+printf "Verfiying relations\n";
+for i in [1 .. Nrows(S)] do
+  r:=S[i];
+  assert((rels[i]*OK)*(&*[fbase[j]^r[j] : j in Support(r)])^-1 eq 1*OK);
+  if i mod 1000 eq 0 then
+    "Verified ",i, " relations.";
+  end if;
+end for;
+printf "Finished verfiying relations\n";
+
+S2:=ChangeRing(S,GF(2));
+CW:=ColumnWeights(S2);
+assert(#[i: i in [1 .. #CW]|CW[i] eq 0] eq 0);
+printf "All primes in the factor base are incident on some relation\n";
+
+//SetVerbose("SparseMatrix", 3);
+printf "Starting right nullspace computation\n";
+K:=NullspaceOfTranspose(S2);
+printf "The right nullspace of the matrix has dimension %o.\n", Dimension(K);
+assert(Dimension(K) eq 15);
